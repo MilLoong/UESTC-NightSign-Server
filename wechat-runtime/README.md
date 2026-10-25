@@ -29,7 +29,7 @@
 ## 3. 安装签到入口 🔑
 
 - `cdp.mjs`：按 appId 选择上下文并调用真实 `wx.login()`
-- `checkin.mjs`：读取微信学校会话，查询状态和范围，换取票据并提交签到
+- `checkin.mjs`：读取微信学校会话（缺失或失效时用 `wx.login` + `check-bind` 自动重建），查询状态和范围，换取票据并提交签到
 - `login.mjs`：独立取码命令，使用 Node.js 22 原生 `WebSocket`
 - `checkin.mjs` 使用 `ws`，确保调试环境中的 Node.js 支持 `fetch`，并可解析该依赖
 
@@ -43,13 +43,15 @@
 
 链路由 `checkin.mjs` 执行：
 
-1. 从目标小程序上下文获取学校 `sessionId`，仅在内存中作为 `SESSION` 使用
-2. 查询当天状态，已签到则跳过
+1. 从目标小程序上下文获取学校 `sessionId`，仅在内存中作为 `SESSION` 使用；若存储中没有有效会话，自动用新 `code` 调 `/platform-app/api/auth/check-bind` 重建，并把结果写回小程序存储
+2. 查询当天状态，已签到则跳过；查询返回会话失效（401 / 4001 / 5000 未登录）时重建会话并重试一次
 3. 查询有效时段和本人允许签到范围，检查配置坐标
 4. 调用学校逆地址接口生成地址
 5. 获取新 `code`，请求 `/platform-app/api/auth/checkin-ticket` 换取 `ticket`
 6. 携带 `X-Checkin-Ticket` 请求 `/daily-checkin/api/student-checkin-record/checkin`
 7. 查询当天记录，确认 `CHECKED_IN`
+
+会话自愈只覆盖小程序会话失效；微信掉登录时 `wx.login` 无法调用，仍需人工扫码恢复。
 
 先执行仅授权命令，再按使用者授权启用提交：
 

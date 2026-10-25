@@ -4,8 +4,9 @@ import { CdpSession, APP_ID, CODE_PATTERN } from './cdp.mjs';
 
 const ORIGIN = 'https://jzsz.uestc.edu.cn';
 const PREFIX = '/daily-checkin/api/';
+const SESSION_PATTERN = /^[A-Za-z0-9._-]{10,256}$/;
 export class JobError extends Error {
-  constructor(code) { super(code); this.code = code; }
+  constructor(code, detail = '') { super(code); this.code = code; this.detail = detail; }
 }
 const requireValue = (value, code) => { if (!value) throw new JobError(code); };
 
@@ -50,27 +51,54 @@ async function connectWechat(Socket) {
       if (identity === APP_ID) { target = id; break; }
     }
     requireValue(target !== undefined, 'TARGET_NOT_OPEN');
-    const sid = await session.evaluate(target, "wx.getStorageSync('sessionId')");
-    requireValue(typeof sid === 'string' && /^[A-Za-z0-9._-]{10,256}$/.test(sid), 'SCHOOL_SESSION_MISSING');
-    return { sid, close: () => session.close(), login: async () => {
-      const code = await session.evaluate(target, `new Promise(resolve => {
+    const evaluate = expression => session.evaluate(target, expression);
+    const login = async () => {
+      const code = await evaluate(`new Promise(resolve => {
         if (wx.getAccountInfoSync().miniProgram.appId !== '${APP_ID}') { resolve(null); return; }
         wx.login({ timeout: 10000, success: r => resolve(r.code || null), fail: () => resolve(null) });
       })`);
       requireValue(typeof code === 'string' && CODE_PATTERN.test(code), 'WX_LOGIN_FAILED');
       return code;
-    } };
+    };
+    // A missing stored session is not fatal: schoolClient rebuilds it via check-bind.
+    const stored = await evaluate("wx.getStorageSync('sessionId')").catch(() => null);
+    const sid = typeof stored === 'string' && SESSION_PATTERN.test(stored) ? stored : null;
+    return {
+      sid,
+      login,
+      close: () => session.close(),
+      // Best effort: the mini program keeps its own copy and may lazily refresh it.
+      rememberSessionId: async value => {
+        requireValue(typeof value === 'string' && SESSION_PATTERN.test(value), 'SESSION_INVALID');
+        await evaluate(`wx.setStorageSync('sessionId', ${JSON.stringify(value)})`).catch(() => {});
+      },
+    };
   } catch (error) { session.close(); throw error; }
 }
 
-export function schoolClient(sid) {
-  return async (path, { body, ticket, platform = 'h5' } = {}) => {
-    const headers = { Cookie: `SESSION=${sid}`, platform, Accept: 'application/json',
-      Origin: ORIGIN, Referer: `${ORIGIN}/daily-checkin-h5/index.html?appId=294`,
+// The school answers 401, or business code 4001 / 5000 with an "未登录" hint,
+// when the SESSION cookie is stale.
+export function isSessionInvalid(error) {
+  if (!(error instanceof JobError)) return false;
+  if (error.code === 'HTTP_401' || error.code === 'PLATFORM_4001') return true;
+  return error.code === 'PLATFORM_5000' && /未登录|会话已失效|会话无效/.test(error.detail);
+}
+
+// Accepts either the runtime handle from connectWechat (self-healing enabled) or
+// a bare session string (session-replay / yyb-protocol, nothing to rebuild from).
+export function schoolClient(wechat, { fetch: fetchImpl = fetch } = {}) {
+  const runtime = wechat && typeof wechat === 'object' ? wechat : null;
+  let sid = runtime ? runtime.sid || null : (wechat || null);
+  let refreshing = null;
+
+  async function raw(path, { body, ticket, platform = 'h5', useSession = true } = {}) {
+    const headers = { Accept: 'application/json', platform, Origin: ORIGIN,
+      Referer: `${ORIGIN}/daily-checkin-h5/index.html?appId=294`,
       'User-Agent': 'UESTC-NightSign-Server/1.0' };
+    if (useSession && sid) headers.Cookie = `SESSION=${sid}`;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (ticket) headers['X-Checkin-Ticket'] = ticket;
-    const response = await fetch(ORIGIN + path, { method: body === undefined ? 'GET' : 'POST',
+    const response = await fetchImpl(ORIGIN + path, { method: body === undefined ? 'GET' : 'POST',
       headers, body: body === undefined ? undefined : JSON.stringify(body),
       redirect: 'error', signal: AbortSignal.timeout(15000) });
     requireValue(response.ok, `HTTP_${response.status}`);
@@ -78,10 +106,56 @@ export function schoolClient(sid) {
     requireValue(text.length < 1024 * 1024, 'RESPONSE_TOO_LARGE');
     let result;
     try { result = JSON.parse(text); } catch { throw new JobError('RESPONSE_NOT_JSON'); }
-    requireValue(result.code === 0 && result.ok !== false,
-      Number.isInteger(result.code) ? `PLATFORM_${result.code}` : 'BUSINESS_RESPONSE_INVALID');
+    if (!(result.code === 0 && result.ok !== false)) {
+      if (Number.isInteger(result.code)) {
+        const detail = [result.msg, result.message].find(value => typeof value === 'string' && value.trim()) || '';
+        throw new JobError(`PLATFORM_${result.code}`, detail);
+      }
+      throw new JobError('BUSINESS_RESPONSE_INVALID');
+    }
     return result.data;
-  };
+  }
+
+  // Fresh wx.login code -> check-bind -> new sessionId. check-bind carries no
+  // stale cookie, so a dead session cannot poison the rebuild.
+  async function refreshSession() {
+    if (!runtime || typeof runtime.login !== 'function') throw new JobError('SCHOOL_SESSION_MISSING');
+    if (!refreshing) {
+      refreshing = (async () => {
+        const code = await runtime.login();
+        const data = await raw('/platform-app/api/auth/check-bind',
+          { body: { code, sn: '' }, platform: 'mp-weixin', useSession: false });
+        requireValue(data && data.bind === true, 'WECHAT_NOT_BOUND');
+        requireValue(typeof data.sessionId === 'string' && SESSION_PATTERN.test(data.sessionId), 'SCHOOL_SESSION_MISSING');
+        sid = data.sessionId;
+        if (typeof runtime.rememberSessionId === 'function') await runtime.rememberSessionId(sid);
+        return sid;
+      })().finally(() => { refreshing = null; });
+    }
+    return refreshing;
+  }
+
+  async function request(path, options = {}) {
+    if (!sid) await refreshSession();
+    try {
+      return await raw(path, options);
+    } catch (error) {
+      // Only idempotent GETs are retried: a rejected POST may already be consumed.
+      if (options.body !== undefined || options.useSession === false || !isSessionInvalid(error)) throw error;
+      if (!runtime) throw error;
+      await refreshSession();
+      return raw(path, options);
+    }
+  }
+
+  // Callable for backward compatibility with schoolClient(session) callers.
+  const client = (path, options) => request(path, options);
+  Object.defineProperties(client, {
+    request: { value: client },
+    refreshSession: { value: refreshSession },
+    sid: { get: () => sid },
+  });
+  return client;
 }
 
 export async function fileLedger(path) {
@@ -156,7 +230,8 @@ async function main() {
     const config = validateConfig(JSON.parse(await readFile(new URL('./config.json', import.meta.url), 'utf8')));
     const { WebSocket } = await import('ws');
     wechat = await connectWechat(WebSocket);
-    const result = await runCheckin({ config, request: schoolClient(wechat.sid), login: wechat.login,
+    const client = schoolClient(wechat);
+    const result = await runCheckin({ config, request: client, login: wechat.login,
       ledger: await fileLedger(new URL('./attempts.json', import.meta.url).pathname), submit: args[0] === '--submit' });
     console.log(JSON.stringify(result));
     if (!result.ok) process.exitCode = 1;
