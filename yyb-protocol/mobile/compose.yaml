@@ -1,0 +1,49 @@
+services:
+  core:
+    build:
+      context: .
+      dockerfile: Dockerfile.core
+    restart: unless-stopped
+    environment:
+      YYB_PROTOCOL_TOKEN: ${YYB_CORE_TOKEN:?Run node init.mjs first}
+      YYB_AUTH_DRIVER: none
+      YYB_ENABLE_PC_LOGIN: "false"
+      GIN_MODE: release
+    volumes:
+      - yyb-data:/data
+    ports:
+      - "127.0.0.1:18766:18766"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:18766/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    security_opt:
+      - no-new-privileges:true
+  gateway:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      core:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      ADMIN_HOST: 0.0.0.0
+      YYB_PUBLIC_ORIGIN: ${YYB_PUBLIC_ORIGIN:-}
+      YYB_STATE_DIR: /data
+      YYB_CORE_URL: http://core:18766
+      YYB_APP_TOKEN: ${YYB_APP_TOKEN:?Run node init.mjs first}
+      YYB_CORE_TOKEN: ${YYB_CORE_TOKEN:?Run node init.mjs first}
+    ports:
+      - "127.0.0.1:18767:18767"
+      - "127.0.0.1:18768:18768"
+    volumes:
+      - yyb-bindings:/data
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  yyb-data:
+  yyb-bindings:

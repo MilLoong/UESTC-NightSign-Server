@@ -1,0 +1,7 @@
+{
+  "name": "uestc-nightsign-mobile-gateway",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test *.test.mjs", "start": "node dev.mjs" },
+  "dependencies": { "qrcode": "1.5.4" }
+}

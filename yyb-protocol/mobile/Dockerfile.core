@@ -1,0 +1,15 @@
+FROM golang:1.24.5-alpine AS build
+RUN apk add --no-cache git
+WORKDIR /src
+RUN git init && git remote add origin https://github.com/525815266/YYB-Go-Enhanced.git \
+    && git fetch --depth 1 origin 8a9497397abc7bf736be462f2e293f2bc6d4d0c0 \
+    && git checkout --detach FETCH_HEAD
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /yyb-go ./cmd/yyb-go
+
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates && adduser -D -u 10001 yyb \
+    && mkdir /data && chown yyb:yyb /data
+COPY --from=build /yyb-go /usr/local/bin/yyb-go
+USER yyb
+WORKDIR /data
+ENTRYPOINT ["yyb-go", "-host", "0.0.0.0", "-port", "18766", "-resource-root", "/data/resource"]

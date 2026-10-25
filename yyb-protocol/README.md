@@ -12,6 +12,8 @@
 
 ## 本机运行 ⚙️
 
+需要在 APP 内生成二维码、扫码并自动保存账号时，使用 [APP 扫码协议服务](mobile/README.md)
+
 准备 Node.js 20 或更新版本，以及适配目标系统架构的 [YYB-Go-Enhanced](https://github.com/525815266/YYB-Go-Enhanced) `0.2.33` 服务程序，核对来源和校验值
 
 1. 在本目录打开 PowerShell，启动服务：
