@@ -1,0 +1,36 @@
+name: Release Server
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify version and test
+        run: |
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('yyb-protocol/mobile/package.json')).version")
+          test "$GITHUB_REF_NAME" = "v$VERSION"
+          npm ci --ignore-scripts --prefix yyb-protocol/mobile
+          node --test yyb-protocol/client.test.mjs yyb-protocol/mobile/server.test.mjs yyb-protocol/mobile/pairing.test.mjs
+      - name: Package source and release notes
+        run: |
+          git archive --format=zip --output="UESTC-NightSign-Server-${GITHUB_REF_NAME}.zip" HEAD
+          git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format='%(contents)' > release-notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: 晚安成电服务端 ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: UESTC-NightSign-Server-${{ github.ref_name }}.zip
+          fail_on_unmatched_files: true
