@@ -1,0 +1,16 @@
+services:
+  replay:
+    build: .
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    restart: "no"
+    volumes:
+      - ./private/login-state.json:/run/secrets/login-state.json:ro
+      - ./private/data:/data
+    tmpfs:
+      - /tmp:size=8m,mode=1777

@@ -1,0 +1,5 @@
+*
+!requirements.txt
+!LICENSE.upstream
+!login_replay/
+!login_replay/*.py

@@ -1,0 +1,13 @@
+[Unit]
+Description=UESTC NightSign daily check-in
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/flock -n /run/uestc-nightsign.lock /usr/bin/timeout 150s /usr/bin/docker exec -w /work/night-sign uestc-wx-debug-ab node checkin.mjs --submit
+TimeoutStartSec=165
+StandardOutput=journal
+StandardError=journal

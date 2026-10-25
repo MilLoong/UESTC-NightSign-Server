@@ -1,0 +1,10 @@
+**/__pycache__/
+**/.venv/
+**/private/
+**/*.sqlite*
+**/*.log
+**/login-state.json
+**/pure-login-state.json
+**/config.json
+**/attempts.json*
+**/*code*.json

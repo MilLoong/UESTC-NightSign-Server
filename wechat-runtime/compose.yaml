@@ -1,0 +1,45 @@
+services:
+  wechat:
+    image: gloridust/wechat-on-cloud:1.4.9
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Asia/Shanghai
+      WOC_SPOOF_OS: "0"
+      WOC_APP_TYPE: wechat
+      DISABLE_IPV6: "true"
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    volumes:
+      - wechat-config:/config
+    mem_limit: 1024m
+    memswap_limit: 2048m
+    cpus: 1
+    pids_limit: 512
+    shm_size: 128m
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "2"
+  debug:
+    image: gloridust/wechat-on-cloud:1.4.9
+    entrypoint: ["/bin/sleep", "infinity"]
+    pid: service:wechat
+    network_mode: service:wechat
+    cap_add: [SYS_PTRACE]
+    volumes:
+      - debugger-work:/work
+      - ./:/provider:ro
+    mem_limit: 512m
+    memswap_limit: 1024m
+    cpus: 0.5
+    pids_limit: 128
+    restart: "no"
+volumes:
+  wechat-config:
+    external: true
+    name: uestc-wx-config-ab
+  debugger-work:
+    external: true
+    name: uestc-wx-debug

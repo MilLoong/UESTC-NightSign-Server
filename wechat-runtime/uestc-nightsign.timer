@@ -1,0 +1,13 @@
+[Unit]
+Description=UESTC NightSign randomized 21:20-22:40 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 21:20:00 Asia/Shanghai
+AccuracySec=1s
+RandomizedDelaySec=80min
+FixedRandomDelay=false
+Persistent=false
+Unit=uestc-nightsign.service
+
+[Install]
+WantedBy=timers.target
