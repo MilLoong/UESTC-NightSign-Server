@@ -7,4 +7,6 @@
 **/pure-login-state.json
 **/config.json
 **/attempts.json*
+**/.local/
+**/.env
 **/*code*.json

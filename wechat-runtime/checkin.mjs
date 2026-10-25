@@ -63,7 +63,7 @@ async function connectWechat(Socket) {
   } catch (error) { session.close(); throw error; }
 }
 
-function schoolClient(sid) {
+export function schoolClient(sid) {
   return async (path, { body, ticket, platform = 'h5' } = {}) => {
     const headers = { Cookie: `SESSION=${sid}`, platform, Accept: 'application/json',
       Origin: ORIGIN, Referer: `${ORIGIN}/daily-checkin-h5/index.html?appId=294`,
@@ -84,7 +84,7 @@ function schoolClient(sid) {
   };
 }
 
-async function fileLedger(path) {
+export async function fileLedger(path) {
   let ledger;
   try { ledger = JSON.parse(await readFile(path, 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT') throw error; ledger = {}; }

@@ -1,0 +1,8 @@
+{
+  "settings": {
+    "endpoint": "http://127.0.0.1:18766",
+    "token": "REPLACE_WITH_PROTOCOL_TOKEN",
+    "ref": "REPLACE_WITH_SCANNED_ACCOUNT_ID"
+  },
+  "session": "REPLACE_WITH_OWN_SCHOOL_SESSION"
+}

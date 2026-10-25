@@ -1,0 +1,16 @@
+[Unit]
+Description=UESTC nightly check-in using YYB
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=uestc-nightsign
+WorkingDirectory=/opt/UESTC-NightSign-Server
+ExecStart=/usr/bin/node yyb-protocol/checkin.mjs /var/lib/uestc-yyb/config.json --submit
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/uestc-yyb
+TimeoutStartSec=180

@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily randomized UESTC YYB check-in
+
+[Timer]
+OnCalendar=*-*-* 21:20:00 Asia/Shanghai
+RandomizedDelaySec=80min
+AccuracySec=1s
+Persistent=false
+Unit=uestc-yyb-checkin.service
+
+[Install]
+WantedBy=timers.target
