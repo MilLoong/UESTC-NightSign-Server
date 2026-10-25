@@ -4,7 +4,7 @@
 
 所以我大概学习了一下 **小程序逆向**，大概找到了 **两种 解决方案**。两种方案 都经过了 **实际验证**，应该不会有太大的问题
 
-当然，如果还有别的更好方案，也欢迎到 [Issues]([Issues · MilLoong/UESTC-NightSign-Server](https://github.com/MilLoong/UESTC-NightSign-Server/issues)) 来给出您的意见
+当然，如果还有别的更好方案，也欢迎到 [Issues](https://github.com/MilLoong/UESTC-NightSign-Server/issues) 来给出您的意见
 
 两种方案都以 **晚安成电签到** 为目标，区别在于 **获取微信登录凭证** 的方式
 
