@@ -30,7 +30,9 @@ export class PairingStore {
       throw new Error('HTTPS_ORIGIN_REQUIRED');
     }
     const code = secret();
-    this.pairs.clear(); // Refreshing the administrator page retires the previous QR.
+    // Other tabs and health checks must not invalidate a QR the user is already scanning.
+    for (const [hash, expires] of this.pairs) if (expires <= this.now()) this.pairs.delete(hash);
+    while (this.pairs.size >= 32) this.pairs.delete(this.pairs.keys().next().value);
     this.pairs.set(digest(code), this.now() + 120_000);
     return { kind: 'uestc-nightsign-pair', version: 1, server: url.origin, code };
   }

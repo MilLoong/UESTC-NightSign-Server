@@ -23,7 +23,7 @@ const gateway = createMobileServer({ appToken: process.env.YYB_APP_TOKEN, coreTo
   coreUrl: process.env.YYB_CORE_URL || 'http://127.0.0.1:18766', pairing });
 let origin = process.env.YYB_PUBLIC_ORIGIN || '';
 if (origin) pairing.offer(origin);
-const admin = createAdminServer(pairing, () => origin);
+const admin = createAdminServer(pairing, () => origin, gateway.authorizationViews, gateway.authorization);
 const children = [];
 let closing = false;
 function stop(exitCode = 0) {

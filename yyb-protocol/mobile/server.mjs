@@ -2,6 +2,7 @@ import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { PairingStore } from './pairing.mjs';
+import { WechatAuthorization, AuthorizationError } from './authorization.mjs';
 
 const appId = 'wxaa78bf2905f01cee';
 const idPattern = /^[A-Za-z0-9_-]{1,128}$/;
@@ -25,7 +26,21 @@ export function createMobileServer({ appToken, coreToken, coreUrl, fetcher = fet
   if (!['http:', 'https:'].includes(upstream.protocol) || upstream.username || upstream.password ||
       upstream.search || upstream.hash || upstream.pathname !== '/') throw new Error('INVALID_CORE_URL');
   let active = 0;
-  const sessions = new Map();
+  const authorization = new WechatAuthorization(pairing, async (path, method, signal) => {
+    const response = await fetcher(new URL(path, upstream), { method, redirect: 'error',
+      signal: AbortSignal.any([signal, AbortSignal.timeout(65_000)]),
+      headers: { Authorization: `Bearer ${coreToken}`, 'Content-Type': 'application/json' },
+      body: method === 'POST' ? '{}' : undefined });
+    let envelope;
+    try { envelope = JSON.parse(await readLimited(response.body, 1_048_576)); }
+    catch { throw new AuthorizationError('协议核心响应无效'); }
+    if (!response.ok || envelope.code !== 0) {
+      const message = /lookup |no such host|server misbehaving/i.test(String(envelope.msg || ''))
+        ? '协议核心 DNS 解析失败' : `协议核心请求失败（HTTP ${response.status}）`;
+      throw new AuthorizationError(message, [408, 409, 429].includes(response.status) || response.status >= 500);
+    }
+    return envelope.data;
+  });
   let pairWindow = 0, pairRequests = 0;
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -55,9 +70,14 @@ export function createMobileServer({ appToken, coreToken, coreUrl, fetcher = fet
     if (req.url === '/v1/device' && req.method === 'DELETE') {
       req.resume();
       if (!device) { reply(403, null, 'DEVICE_TOKEN_REQUIRED'); return; }
-      try { pairing.revoke(device.id); reply(200, { revoked: true }); }
+      try { pairing.revoke(device.id); authorization.cancel(device.id); reply(200, { revoked: true }); }
       catch { reply(500, null, 'STATE_SAVE_FAILED'); }
       return;
+    }
+    if (req.url === '/v1/device' && req.method === 'GET') {
+      req.resume();
+      if (!device) { reply(403, null, 'DEVICE_TOKEN_REQUIRED'); return; }
+      reply(200, authorization.status(device.id)); return;
     }
     if (active >= 8) { req.resume(); reply(429, null, 'TOO_MANY_REQUESTS'); return; }
     active++;
@@ -75,19 +95,8 @@ export function createMobileServer({ appToken, coreToken, coreUrl, fetcher = fet
       else if (session && !url.search && req.method === (session[2] === 'poll' ? 'GET' : 'POST')) kind = session[2];
       else if (url.pathname === '/wxapp/getCode' && !url.search && req.method === 'POST') kind = 'code';
       else { req.resume(); reply(404, null, 'NOT_FOUND'); return; }
-      for (const [id, value] of sessions) if (value.expires <= Date.now()) sessions.delete(id);
-      if (!administrator && session && sessions.get(session[1])?.owner !== device.id) {
-        req.resume(); reply(404, null, 'QR_SESSION_NOT_FOUND'); return;
-      }
-      if (!administrator && kind === 'create' &&
-          [...sessions.values()].filter(item => item.owner === device.id && !item.account).length >= 3) {
-        req.resume(); reply(429, null, 'TOO_MANY_QR_SESSIONS'); return;
-      }
-      const completed = session && sessions.get(session[1]);
-      if (device && completed?.account && ['confirm', 'poll'].includes(kind)) {
-        req.resume();
-        if (!device.accounts.includes(String(completed.account))) { reply(403, null, 'ACCOUNT_NOT_OWNED'); return; }
-        reply(200, kind === 'confirm' ? { id: completed.account } : { status: 'confirmed' }); return;
+      if (!administrator && !['health', 'code'].includes(kind)) {
+        req.resume(); reply(404, null, 'SERVER_MANAGED_AUTHORIZATION'); return;
       }
       if (req.method === 'POST') {
         let input;
@@ -121,15 +130,11 @@ export function createMobileServer({ appToken, coreToken, coreUrl, fetcher = fet
         case 'health': output = { ok: data?.ok === true }; break;
         case 'create':
           if (!idPattern.test(data?.session_id || '') || !/^data:image\/(jpeg|jpg|png);base64,[A-Za-z0-9+/=]+$/.test(data?.image_base64 || '')) throw new Error('INVALID_QR');
-          if (device) sessions.set(data.session_id, { owner: device.id, expires: Date.now() + 300_000 });
           output = { session_id: data.session_id, image_base64: data.image_base64, status: data.status }; break;
         case 'poll': case 'cancel':
-          if (kind === 'cancel') sessions.delete(session[1]);
           output = { status: data?.status }; break;
         case 'confirm':
           if (!Number.isSafeInteger(data?.id) || data.id <= 0) throw new Error('INVALID_ACCOUNT');
-          if (device) pairing.grant(device.id, data.id);
-          if (device && sessions.has(session[1])) sessions.get(session[1]).account = data.id;
           output = { id: data.id }; break;
         case 'code': output = { result: { code: data?.result?.code } }; break;
       }
@@ -140,6 +145,9 @@ export function createMobileServer({ appToken, coreToken, coreUrl, fetcher = fet
   server.headersTimeout = 10_000;
   server.requestTimeout = 10_000;
   server.pairing = pairing;
+  server.authorization = authorization;
+  server.authorizationViews = () => authorization.views();
+  server.on('close', () => authorization.close());
   return server;
 }
 

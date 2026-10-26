@@ -13,7 +13,7 @@ async function fixture(t, fetcher) {
   });
 }
 
-test('app QR creation, polling, confirmation and code flow', async t => {
+test('legacy administrator QR proxy and code flow', async t => {
   const calls = [];
   const call = await fixture(t, async (url, options) => {
     calls.push({ url, ...options });
