@@ -7,7 +7,7 @@
 ## 部署要求 ⚙️
 
 - **目标小程序**：成电智慧学工，`appId` 为 `wxaa78bf2905f01cee`
-- **学校登录**：本人微信已在成电智慧学工绑定学校身份时，通过 `YYB code -> check-bind -> SESSION` 获取学校会话，无需单独进行 CAS 登录，学校会话失效后可重复此流程恢复
+- **学校登录**：本人微信已在成电智慧学工绑定学校身份时，`checkin.mjs` / `verify.mjs` 会自动用 `YYB code -> check-bind -> SESSION` 获取并刷新学校会话，无需单独进行 CAS 登录，也无需预先填写 `session`
 - **环境检查**：先确认目标系统、CPU 架构、Node.js、端口及已有任务，保留授权数据、私密配置和当天账本
 - **用户输入**：集中确认部署位置、微信学校身份绑定情况及 GCJ-02 坐标，扫码和必要的身份认证交给用户，其余安装和配置由 Agent 执行
 - **部署入口**：自行获取本仓库并执行本文件步骤，不要求用户提前克隆或手动逐条运行命令
@@ -44,16 +44,15 @@
    - `settings.endpoint`：本机默认使用 `http://127.0.0.1:18766`
    - `settings.token`：填写 `.local/yyb.env` 中的 `YYB_PROTOCOL_TOKEN`
    - `settings.ref`：填写 `.local/account.json` 中的账号 `id`，使用字符串格式
-   - `session`：由 Agent 按下述流程获取学校 `SESSION` 后写入，不包含 `SESSION=` 前缀，无需用户手动复制 CAS 会话
+   - `session`：可选，留空即可。程序在会话缺失或失效时自动 `check-bind` 获取，成功后写回该文件作为缓存（只写本机私密配置，不输出到日志）
 
-   学校会话获取及恢复流程：
+   学校会话获取与恢复（已内置，无需手工执行）：
 
    - 调用 `getYybCode(settings)` 获取目标小程序的新 `code`
    - 向学校 `/platform-app/api/auth/check-bind` 发送 `POST`，设置 `platform: mp-weixin`，请求体为 `{ "code": "本次新获取的 code", "sn": "" }`，不携带旧学校 Cookie
-   - 确认响应成功、`data.bind === true` 且 `data.sessionId` 有效，将其作为 `session` 保存在私密配置中，不输出到日志
+   - 确认响应成功、`data.bind === true` 且 `data.sessionId` 有效，将其作为 `session` 写回私密配置
    - 兑换 `checkin-ticket` 时重新获取一个 `code`，不能重复使用已用于 `check-bind` 的值
-   - 当前 `verify.mjs` 和 `checkin.mjs` 仍读取配置中的 `session`，部署 Agent 需接入自动获取及刷新逻辑，可参考 `../wechat-runtime/checkin.mjs` 的 `schoolClient`，将运行时的 `login` 接到 `getYybCode(settings)`
-   - 遇到明确的会话失效错误时刷新一次并重试查询，不因认证失败或请求超时自动重发签到提交
+   - 遇到明确的会话失效（HTTP 401 / 业务码 4001）时自动重建会话并重试一次查询，不因认证失败或请求超时自动重发签到提交
    - 学校返回未绑定时停止流程，请用户进入成电智慧学工完成学校身份绑定后重试
 
 4. 验证学校签票，不提交签到：

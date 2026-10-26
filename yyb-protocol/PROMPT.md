@@ -9,9 +9,9 @@
 
 向我集中确认部署位置、机器访问方式、微信是否已在成电智慧学工绑定学校身份，以及本人实际签到位置的 GCJ-02 经度和纬度。坐标由我提供并写入私密配置，不使用示例值。扫码及必要的身份认证交给我，其余安装、配置和启动由你执行。
 
-目标小程序 appId 为 wxaa78bf2905f01cee。优先使用 YYB 获取新的 code，不携带旧学校 Cookie 调用 /platform-app/api/auth/check-bind，设置 platform: mp-weixin，请求体为 {code, sn: ""}。确认响应成功、data.bind 为 true 且 sessionId 有效后，保存学校 SESSION。兑换 checkin-ticket 时必须重新获取 code，不能复用 check-bind 已消费的 code。
+目标小程序 appId 为 wxaa78bf2905f01cee。自动取会话的内置流程：优先使用 YYB 获取新的 code，不携带旧学校 Cookie 调用 /platform-app/api/auth/check-bind，设置 platform: mp-weixin，请求体为 {code, sn: ""}。确认响应成功、data.bind 为 true 且 sessionId 有效后，保存学校 SESSION。兑换 checkin-ticket 时必须重新获取 code，不能复用 check-bind 已消费的 code。
 
-微信已绑定学校身份时，不要求我先登录 CAS 或手动复制 SESSION。检查当前入口是否已接入自动获取和刷新；如果仍从配置读取 session，在当前工程内补齐，参考 wechat-runtime/checkin.mjs 的 schoolClient，将 login 接到 getYybCode(settings)。明确的学校会话失效只刷新一次并重试查询，不自动重发签到 POST。未绑定时提示我进入小程序绑定，微信授权无法续期时提示重新扫码，不无限重试。CAS 仅作为需要独立学校认证时的可选方案，参考部署手册提供的项目，不直接复用教务系统会话。
+微信已绑定学校身份时，不要求我先登录 CAS 或手动复制 SESSION；verify.mjs 与 checkin.mjs 已内置自动 check-bind 获取会话、失效后重建并写回配置缓存。明确的学校会话失效只刷新一次并重试查询，不自动重发签到 POST。未绑定时提示我进入小程序绑定，微信授权无法续期时提示重新扫码，不无限重试。CAS 仅作为需要独立学校认证时的可选方案，参考部署手册提供的项目，不直接复用教务系统会话。
 
 协议服务仅监听本机回环地址，配置鉴权、独立服务用户和私密文件权限，不开放公网取码或管理接口。只有我明确需要 APP 连接时才部署 mobile 组件，并配置受保护的 HTTPS 入口。不得在仓库或普通日志中输出微信凭据、学校 SESSION、code、ticket 或完整位置资料。
 

@@ -1,7 +1,12 @@
 export const APP_ID = 'wxaa78bf2905f01cee';
 
+const SCHOOL_SESSION = /^[A-Za-z0-9._~-]{10,512}$/;
+const SESSION_REJECTED = new Set(['SCHOOL_401', 'SCHOOL_4001', 'SCHOOL_HTTP_401']);
+const CHECK_BIND = 'https://jzsz.uestc.edu.cn/platform-app/api/auth/check-bind';
+const CHECKIN_TICKET = 'https://jzsz.uestc.edu.cn/platform-app/api/auth/checkin-ticket';
+
 export class YybError extends Error {
-  constructor(code) { super(code); this.code = code; }
+  constructor(code, detail = '') { super(code); this.code = code; this.detail = detail; }
 }
 
 export function validateSettings(settings) {
@@ -56,19 +61,59 @@ export async function getYybCode(settings, fetcher = fetch) {
   return code;
 }
 
-export async function verifyTicket({ settings, session }, fetcher = fetch) {
-  if (typeof session !== 'string' || !/^[A-Za-z0-9._~-]{10,512}$/.test(session)) throw new YybError('SCHOOL_SESSION_REQUIRED');
+async function schoolPost(url, session, body, fetcher) {
+  let response;
+  try {
+    const headers = { 'Content-Type': 'application/json', platform: 'mp-weixin' };
+    if (session) headers.Cookie = `SESSION=${session}`;
+    response = await fetcher(url, { method: 'POST', redirect: 'error', headers,
+      body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
+  } catch { throw new YybError('SCHOOL_CONNECTION_FAILED'); }
+  if (response.status === 401) throw new YybError('SCHOOL_401');
+  let result;
+  try { result = await response.json(); } catch { throw new YybError('SCHOOL_RESPONSE_INVALID'); }
+  return { response, result };
+}
+
+/** Obtain a school session from a fresh wx.login code (no CAS involved). */
+export async function acquireSession(settings, fetcher = fetch) {
   const code = await getYybCode(settings, fetcher);
-  const response = await fetcher('https://jzsz.uestc.edu.cn/platform-app/api/auth/checkin-ticket', {
-    method: 'POST', redirect: 'error', headers: {
-      Cookie: `SESSION=${session}`, 'Content-Type': 'application/json', platform: 'mp-weixin',
-    }, body: JSON.stringify({ code }), signal: AbortSignal.timeout(15000),
-  });
-  let body;
-  try { body = await response.json(); } catch { throw new YybError('SCHOOL_RESPONSE_INVALID'); }
-  const ticket = typeof body.data === 'string' ? body.data : body.data?.ticket;
-  if (!response.ok || body.code !== 0 || typeof ticket !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(ticket)) {
-    throw new YybError(Number.isInteger(body.code) ? `SCHOOL_${body.code}` : 'SCHOOL_AUTH_FAILED');
+  const { response, result } = await schoolPost(CHECK_BIND, null, { code, sn: '' }, fetcher);
+  if (!response.ok) throw new YybError(`SCHOOL_HTTP_${response.status}`);
+  if (result?.code !== 0 || result?.ok === false) {
+    throw new YybError(Number.isInteger(result?.code) ? `SCHOOL_${result.code}` : 'SCHOOL_AUTH_FAILED');
+  }
+  const data = result?.data;
+  if (!data || data.bind !== true) throw new YybError('WECHAT_NOT_BOUND');
+  if (typeof data.sessionId !== 'string' || !SCHOOL_SESSION.test(data.sessionId)) throw new YybError('SCHOOL_SESSION_INVALID');
+  return data.sessionId;
+}
+
+async function exchangeTicket(session, settings, fetcher) {
+  const code = await getYybCode(settings, fetcher);
+  const { response, result } = await schoolPost(CHECKIN_TICKET, session, { code }, fetcher);
+  const ticket = typeof result?.data === 'string' ? result.data : result?.data?.ticket;
+  if (!response.ok || result?.code !== 0 || typeof ticket !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(ticket)) {
+    throw new YybError(Number.isInteger(result?.code) ? `SCHOOL_${result.code}` : `SCHOOL_HTTP_${response.status}`);
   }
   return { ok: true, appId: APP_ID, codeLength: code.length, ticketLength: ticket.length, checkinSubmitted: false };
+}
+
+/**
+ * Verify ticket acquisition. Without a configured session it acquires one via
+ * check-bind; a rejected session is rebuilt once and the exchange retried.
+ */
+export async function verifyTicket({ settings, session }, fetcher = fetch) {
+  let sid = SCHOOL_SESSION.test(session || '') ? session : null;
+  let refreshed = false;
+  for (;;) {
+    if (!sid) sid = await acquireSession(settings, fetcher);
+    try {
+      return await exchangeTicket(sid, settings, fetcher);
+    } catch (error) {
+      if (refreshed || !(error instanceof YybError) || !SESSION_REJECTED.has(error.code)) throw error;
+      refreshed = true;
+      sid = null;
+    }
+  }
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { APP_ID, getYybCode, validateSettings, verifyTicket } from './client.mjs';
+import { APP_ID, acquireSession, getYybCode, validateSettings, verifyTicket } from './client.mjs';
 
 const settings = { endpoint: 'http://127.0.0.1:18766', token: 'A'.repeat(43), ref: '1' };
 const code = '0' + 'B'.repeat(31);
@@ -48,4 +48,58 @@ test('ticket-only flow sends school cookie only to school and never checks in', 
   assert.equal(result.checkinSubmitted, false);
   assert.equal(result.ticketLength, 43);
   assert.equal(JSON.stringify(result).includes(code), false);
+});
+
+// --- automatic school session ----------------------------------------------
+
+const sessionId = 'S'.repeat(32);
+
+test('missing session is acquired through check-bind', async () => {
+  const requests = [];
+  const sid = await acquireSession(settings, async (url, options) => {
+    requests.push({ url: String(url), options });
+    if (String(url).endsWith('/wxapp/getCode')) return json({ result: { code } });
+    return json({ code: 0, ok: true, data: { bind: true, sessionId } });
+  });
+  assert.equal(sid, sessionId);
+  assert.equal(requests.length, 2);
+  assert.match(requests[1].url, /\/platform-app\/api\/auth\/check-bind$/);
+  assert.equal(requests[1].options.headers.Cookie, undefined);
+  assert.deepEqual(JSON.parse(requests[1].options.body), { code, sn: '' });
+  assert.equal(requests[1].options.headers.platform, 'mp-weixin');
+});
+
+test('unbound WeChat account stops before exchanging a ticket', async () => {
+  await assert.rejects(acquireSession(settings, async (url) => {
+    if (String(url).endsWith('/wxapp/getCode')) return json({ result: { code } });
+    return json({ code: 0, ok: true, data: { bind: false } });
+  }), { code: 'WECHAT_NOT_BOUND' });
+});
+
+test('verifyTicket acquires a session when none is configured', async () => {
+  const requests = [];
+  const result = await verifyTicket({ settings }, async (url, options) => {
+    requests.push(String(url));
+    if (String(url).endsWith('/wxapp/getCode')) return json({ result: { code } });
+    if (String(url).endsWith('/check-bind')) return json({ code: 0, ok: true, data: { bind: true, sessionId } });
+    assert.equal(options.headers.Cookie, `SESSION=${sessionId}`);
+    return json({ code: 0, data: { ticket: 'T'.repeat(43) } });
+  });
+  assert.equal(requests.length, 4);
+  assert.equal(result.ticketLength, 43);
+  assert.equal(result.checkinSubmitted, false);
+});
+
+test('stale school session is rebuilt once and the exchange retried', async () => {
+  let ticketCalls = 0;
+  const result = await verifyTicket({ settings, session: 'OLD'.repeat(4) }, async (url, options) => {
+    if (String(url).endsWith('/wxapp/getCode')) return json({ result: { code } });
+    if (String(url).endsWith('/check-bind')) return json({ code: 0, ok: true, data: { bind: true, sessionId } });
+    ticketCalls++;
+    if (ticketCalls === 1) return new Response('', { status: 401 });
+    assert.equal(options.headers.Cookie, `SESSION=${sessionId}`);
+    return json({ code: 0, data: { ticket: 'T'.repeat(43) } });
+  });
+  assert.equal(ticketCalls, 2);
+  assert.equal(result.ok, true);
 });
