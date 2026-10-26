@@ -27,7 +27,7 @@ def main():
             db.execute("CREATE TABLE IF NOT EXISTS seen (hash TEXT PRIMARY KEY)")
             db.commit()
             db.execute("BEGIN IMMEDIATE")
-            code = request_code(state)
+            code = request_code(state, attempts=2)
             digest = hashlib.sha256(code.encode()).hexdigest()
             if digest == state["capturedCodeHash"]:
                 raise ValueError("CAPTURED_CODE_REPEATED")

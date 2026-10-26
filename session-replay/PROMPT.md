@@ -3,9 +3,9 @@
 复制代码块内容 交给 AI，按仓库内的 部署手册 执行
 
 ```text
-请将 https://github.com/MilLoong/UESTC-NightSign-Server.git 的 session-replay 方案部署到我选择的服务器、本地 Linux 或 GitHub Actions。先确认部署方式，再自行获取代码，阅读 session-replay/README.md，完成首次采集入口、私密状态准备、HTTP 取码、学校认证、晚安成电签到和定时任务，不要求我预先手动克隆仓库。
+请将 https://github.com/MilLoong/UESTC-NightSign-Server.git 的 session-replay 方案部署到我选择的服务器、本地 Linux 或 GitHub Actions。先确认部署方式，再自行获取代码，阅读 session-replay/README.md，完成首次采集、私密状态准备、HTTP 取码、学校认证、晚安成电签到和定时任务，不要求我预先手动克隆仓库。
 
-以当前仓库为实现入口，复用 login_replay 内的协议、状态和传输模块，在当前工程内补齐采集入口、学校业务和调度，不另行克隆其他项目替代实现。可参考仓库内 wechat-runtime/checkin.mjs 的学校接口及防重复逻辑，但本方案的日常运行不要依赖常驻微信。
+以当前仓库为实现入口，复用 login_replay 内的协议、状态、传输和签到模块，不另行克隆其他项目替代实现。首次采集可复用上游 MIT 项目 fanrea/uestc-checkin-actions-public 的 Windows 采集工具（trace_login_request.py + prepare_pure_login_state.py），签到入口为 python -m login_replay.checkin；本方案的日常运行不要依赖常驻微信。
 
 向我集中确认目标机器、首次采集用的微信环境、本人学校会话及 GCJ-02 坐标。由我完成扫码和必要授权，其余部署由你执行。采集按实际版本适配，Windows 微信 4.1.15.56、WMPF 25799 为适配组合，不将 Windows 偏移用于 Linux。
 
@@ -13,7 +13,7 @@
 
 完成当天状态、实际签到时段、本人允许范围和逆地址查询，再携带票据提交 daily-checkin 并查询当天记录。先执行仅授权模式，再按我的授权启用真实提交。使用本人提供的位置资料，不伪造实时传感器诊断。
 
-定时每天按北京时间 21:20–22:40 随机一次，提交前重新检查学校时段，不补跑错过的任务。服务器或本地模式配置进程锁、当天账本和系统定时器；Actions 模式配置本仓库工作流、Secrets、最小权限、超时和 concurrency，处理调度延迟及临时 runner 的跨运行状态持久化。不要同时启用两处调度，结果不明确时仅查询，不自动重复提交。不得把只会取码的 CLI 当作完整签到入口。
+定时每天按北京时间 21:20–22:40 随机一次，提交前重新检查学校时段，不补跑错过的任务。服务器或本地模式配置进程锁、当天账本和系统定时器；Actions 模式自行编写工作流，配置 Secrets、最小权限、超时和 concurrency，处理调度延迟及临时 runner 的跨运行状态持久化。不要同时启用两处调度，结果不明确时仅查询，不自动重复提交。签到入口与取码 CLI 分开使用，不要把取码 CLI 当作签到任务。
 
 状态失效时停止并提示重新采集，学校 SESSION 过期时更新本人会话，不假定无限有效或自动续期。保护密钥、Cookie、code、ticket 和位置资料，不写入仓库或普通日志，保留 MIT 许可。
 

@@ -1,10 +1,30 @@
-"""Fixed-destination transport; no redirects or automatic retries."""
+"""Fixed-destination transport; no redirects, only bounded connection retries."""
 import base64
 import http.client
+import time
+
 from .protocol import HOST, parse_request, session_inputs, unwrap_business, extract_code
 
 
-def request_code(state, timeout=20):
+def request_code(state, timeout=20, attempts=1, backoff=2.0):
+    """Replay the captured request once, retrying only connection-level errors.
+
+    Each replay mints a fresh code, so retrying is safe; protocol or HTTP
+    rejections are not retried and mean the captured state needs refreshing.
+    """
+    attempts = max(1, int(attempts))
+    last = None
+    for attempt in range(attempts):
+        try:
+            return _request_once(state, timeout)
+        except (OSError, http.client.HTTPException) as error:
+            last = error
+            if attempt + 1 < attempts:
+                time.sleep(backoff * (attempt + 1))
+    raise last
+
+
+def _request_once(state, timeout):
     raw = base64.b64decode(state["httpRequest"], validate=True)
     path, headers, body = parse_request(raw)
     inputs = session_inputs(state, body)
