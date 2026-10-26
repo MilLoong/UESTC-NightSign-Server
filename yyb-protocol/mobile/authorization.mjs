@@ -28,6 +28,7 @@ export class WechatAuthorization {
     job.status = 'cancelled'; job.image = null;
     if (job.session) this.call(`/wx/qrcodeauth/${job.session}/cancel`, 'POST', AbortSignal.timeout(5000)).catch(() => {});
   }
+  reset(id) { this.cancel(id); this.jobs.delete(id); }
   active(job, signal) {
     signal.throwIfAborted();
     if (this.jobs.get(job.id) !== job || !this.device(job.id)) throw new Error('DEVICE_REVOKED');

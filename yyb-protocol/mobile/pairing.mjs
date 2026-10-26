@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -10,12 +10,24 @@ export class PairingStore {
     this.now = now;
     this.pairs = new Map();
     this.devices = [];
+    this.serverId = secret();
     if (directory) {
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       this.file = join(directory, 'devices.json');
       try { this.devices = JSON.parse(readFileSync(this.file, 'utf8')); }
       catch (error) { if (error.code !== 'ENOENT') throw error; }
       if (!Array.isArray(this.devices)) throw new Error('INVALID_DEVICE_STATE');
+      const identityFile = join(directory, 'server-id');
+      try { this.serverId = readFileSync(identityFile, 'utf8').trim(); }
+      catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        try { writeFileSync(identityFile, this.serverId, { mode: 0o600, flag: 'wx' }); }
+        catch (writeError) {
+          if (writeError.code !== 'EEXIST') throw writeError;
+          this.serverId = readFileSync(identityFile, 'utf8').trim();
+        }
+      }
+      if (!/^[A-Za-z0-9_-]{43}$/.test(this.serverId)) throw new Error('INVALID_SERVER_IDENTITY');
     }
   }
   save() {
@@ -34,18 +46,47 @@ export class PairingStore {
     for (const [hash, expires] of this.pairs) if (expires <= this.now()) this.pairs.delete(hash);
     while (this.pairs.size >= 32) this.pairs.delete(this.pairs.keys().next().value);
     this.pairs.set(digest(code), this.now() + 120_000);
-    return { kind: 'uestc-nightsign-pair', version: 1, server: url.origin, code };
+    return { kind: 'uestc-nightsign-pair', version: 1, server: url.origin, server_id: this.serverId, code };
   }
-  claim(code) {
+  claim(code, { installationKey, previousProof } = {}) {
     if (typeof code !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(code)) return null;
     const hash = digest(code), expires = this.pairs.get(hash);
     if (!expires || expires <= this.now()) { this.pairs.delete(hash); return null; }
-    const token = secret(), id = randomBytes(12).toString('hex');
-    const device = { id, hash: digest(token), accounts: [], revoked: false, created: this.now() };
-    this.devices.push(device);
-    try { this.save(); } catch (error) { this.devices.pop(); throw error; }
+    if (installationKey !== undefined && (typeof installationKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(installationKey))) return null;
+    if (previousProof !== undefined && (typeof previousProof !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(previousProof))) return null;
+    const installationHash = installationKey ? digest(installationKey) : null;
+    const existing = installationHash ? this.devices.find(item => item.installation_hash === installationHash) : null;
+    // The proof binds the previous credential to this one-time code and installation key.
+    // It migrates legacy records across tunnel URL changes without revealing a bearer token.
+    const previous = installationKey && previousProof ? this.devices.find(item => {
+      if (item.revoked) return false;
+      const expected = createHmac('sha256', Buffer.from(item.hash, 'hex'))
+        .update(`uestc-nightsign-rebind\n${code}\n${installationKey}`).digest('base64url');
+      return timingSafeEqual(Buffer.from(expected), Buffer.from(previousProof));
+    }) : null;
+    const token = secret(), backup = this.devices.map(item => ({ ...item, accounts: [...item.accounts] }));
+    let device = existing || previous;
+    const merged = [];
+    if (!device) {
+      device = { id: randomBytes(12).toString('hex'), accounts: [], created: this.now() };
+      this.devices.push(device);
+    } else if (device.revoked) device.accounts = [];
+    if (previous && previous !== device) {
+      device.accounts = [...new Set([...device.accounts, ...previous.accounts])];
+      previous.revoked = true; previous.accounts = []; merged.push(previous.id);
+    }
+    device.hash = digest(token); device.revoked = false; device.last_bound = this.now();
+    if (installationHash) device.installation_hash = installationHash;
+    try { this.save(); } catch (error) {
+      backup.forEach((item, index) => {
+        for (const key of Object.keys(this.devices[index])) delete this.devices[index][key];
+        Object.assign(this.devices[index], item);
+      });
+      this.devices.length = backup.length;
+      throw error;
+    }
     this.pairs.delete(hash);
-    return { token, device_id: id };
+    return { token, device_id: device.id, merged_device_ids: merged, ref: device.accounts.at(-1) || null };
   }
   authenticate(token) {
     if (!/^[A-Za-z0-9_-]{43,128}$/.test(token || '')) return null;
@@ -72,5 +113,6 @@ export class PairingStore {
       try { this.save(); } catch (error) { device.revoked = old; throw error; }
     }
   }
-  list() { return this.devices.map(({ id, created, revoked }) => ({ id, created, revoked })); }
+  list() { return [...this.devices].sort((a, b) => (a.last_bound || a.created) - (b.last_bound || b.created))
+    .map(({ id, created, revoked }) => ({ id, created, revoked })); }
 }

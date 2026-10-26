@@ -54,7 +54,11 @@ export function createMobileServer({ appToken, coreToken, coreUrl, fetcher = fet
       if (++pairRequests > 30) { req.resume(); reply(429, null, 'PAIR_RATE_LIMIT'); return; }
       try {
         const body = JSON.parse((await readLimited(req, 4096)).toString());
-        const device = pairing.claim(body.code);
+        const device = pairing.claim(body.code, { installationKey: body.installation_key, previousProof: body.previous_proof });
+        if (device) {
+          authorization.reset(device.device_id);
+          for (const id of device.merged_device_ids) authorization.reset(id);
+        }
         reply(device ? 200 : 400, device, device ? 'success' : 'PAIR_EXPIRED_OR_USED');
       } catch { reply(400, null, 'INVALID_PAIR_REQUEST'); }
       return;
