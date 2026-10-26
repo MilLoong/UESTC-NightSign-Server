@@ -19,19 +19,46 @@
 - `login_replay/transport.py`：向固定微信目的地发送一次请求，仅对连接级错误做有限重试
 - `login_replay/__main__.py`：离线检查、在线取码、重复 code 指纹账本及可选私密输出
 - `login_replay/checkin.py`：签到入口，复用取码模块完成当天状态/时段/范围校验、换票、单次提交与回查
+- `capture/windows/`：Windows 首次采集（Frida 触发登录、抓取 MMTLS 密钥与请求响应、校验状态、导出学校 SESSION）
 - `Dockerfile`、`compose.yaml`：受限权限的服务器运行环境
 - `../wechat-runtime/checkin.mjs`：同语义的 JS 参考实现
 
-本目录同时提供取码工具和签到入口。首次采集可复用上游 MIT 项目的采集工具（见第 3 节），学校 `SESSION` 由使用者提供。
+本目录同时提供取码工具、Windows 采集工具和签到入口；学校 `SESSION` 由使用者提供。
 
 ## 3. 准备首次采集与私密状态 🔑
 
-1. 准备本人已登录的微信及目标小程序 `wxaa78bf2905f01cee`
-2. 首次采集可复用上游 MIT 项目 fanrea/uestc-checkin-actions-public 的 Windows 采集工具：`tools/windows/trace_login_request.py` 触发并抓取登录请求，`tools/windows/prepare_pure_login_state.py` 生成 `version=1` 状态（字段与本目录一致）；也可按实际微信版本自行适配原生调用与偏移
-3. 采集适配组合为 Windows 微信 `4.1.15.56`、WMPF `25799`，其他版本需重新适配，不将 Windows 偏移直接用于 Linux
-4. 生成 `version=1` 状态，包含 `appId`、`httpRequest`、`capturedHttpResponse`、`mmtlsSecret`、`businessResponseKey`、`businessResponseAad`、`capturedCodeHash`
-5. 安全传输至部署目录 `private/login-state.json`，另行准备本人学校 `SESSION`
-6. 使用状态校验模块检查应用身份和保存响应的解密结果，再继续部署
+采集只在 Windows 上做一次，需要已登录的微信和目标小程序已打开：
+
+1. 准备本人已登录的 Windows 微信及目标小程序 `wxaa78bf2905f01cee`，进入“晚安成电”签到页
+2. 安装采集依赖：
+
+   ```powershell
+   py -3.11 -m pip install -r capture/windows/requirements.txt
+   ```
+
+3. 触发一次真实 `wx.login` 并抓取状态：
+
+   ```powershell
+   python -m capture.windows.collect --output private/login-state.json
+   ```
+
+   脚本自动定位小程序宿主与微信网络进程，调用真实 `wx.login`，抓取 MMTLS 密钥、请求与响应，校验离线解密结果与原生 code 一致后写出 `version=1` 状态（含 `appId`、`httpRequest`、`capturedHttpResponse`、`mmtlsSecret`、`businessResponseKey`、`businessResponseAad`、`capturedCodeHash`）。多个宿主时用 `--pid` / `--host-pid` 选择，覆盖已有状态需 `--force`
+
+4. 导出本人学校 `SESSION`（在小程序内打开打卡页后执行）：
+
+   ```powershell
+   python -m capture.windows.get_cookie --output private/session.txt
+   ```
+
+5. 状态与 SESSION 安全传输至部署目录，设置 `0700` 目录、`0600` 文件
+
+6. 需要单独校验已有状态时：
+
+   ```powershell
+   python -m capture.windows.build_state --check private/login-state.json
+   ```
+
+采集适配组合为 Windows 微信 `4.1.15.56`、WMPF `25799`；其他版本需按实际二进制调整偏移，脚本会拒绝不匹配的构建。`--keep-trace` 会额外保留密钥级抓包，仅用于排障
 
 状态和采集目录均按凭证保护，Base64 不是加密。捕获状态没有自动过期检查，建议采集后尽快使用；失效时重新采集。学校 `SESSION` 过期时更新本人会话，不默认存在密码登录或自动续期能力
 
@@ -79,7 +106,7 @@ docker compose run --rm replay \
 ```json
 {
   "state": "login-state.json",
-  "session": "<本人学校 SESSION，不含 SESSION= 前缀>",
+  "session": "<capture.windows.get_cookie 导出的值，去掉 SESSION= 前缀>",
   "location": {"latitude": 30.75, "longitude": 103.93, "coordinateSystemCode": "gcj02"},
   "userAgent": "UESTC-NightSign-Server/1.0",
   "ledger": "data/attempts.sqlite"
@@ -136,6 +163,7 @@ docker compose run --rm --entrypoint python replay \
 
 - 学校会话过期时更新本人 `SESSION`，微信重放状态失效时重新采集
 - 取码失败先区分：连接级错误已自动重试 1 次；HTTP/协议拒绝说明捕获状态已失效，需要重新采集
+- 采集失败按错误码处理：`OPEN_TARGET_MINIPROGRAM_FIRST` 先打开小程序，`MULTIPLE_HOSTS` 用 `--pid` 选择，`CAPTURE_UNSUPPORTED_WECHAT_BUILD` 表示微信版本不匹配、需要调整偏移，`CAPTURE_ATTACH_FAILED` 检查是否以管理员运行并允许 Frida 附加
 - 停止微信进程与退出账号不是同一操作，日常运行不需要常驻微信，但仍依赖服务端接受会话
 - 日志只记录阶段、状态和错误码，不输出密钥、Cookie、code、ticket 或完整位置
 - 保留现有部署及私密数据备份，更新时不覆盖当天防重复账本

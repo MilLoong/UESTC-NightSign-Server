@@ -5,7 +5,7 @@
 ```text
 请将 https://github.com/MilLoong/UESTC-NightSign-Server.git 的 session-replay 方案部署到我选择的服务器、本地 Linux 或 GitHub Actions。先确认部署方式，再自行获取代码，阅读 session-replay/README.md，完成首次采集、私密状态准备、HTTP 取码、学校认证、晚安成电签到和定时任务，不要求我预先手动克隆仓库。
 
-以当前仓库为实现入口，复用 login_replay 内的协议、状态、传输和签到模块，不另行克隆其他项目替代实现。首次采集可复用上游 MIT 项目 fanrea/uestc-checkin-actions-public 的 Windows 采集工具（trace_login_request.py + prepare_pure_login_state.py），签到入口为 python -m login_replay.checkin；本方案的日常运行不要依赖常驻微信。
+以当前仓库为实现入口，复用 login_replay 内的协议、状态、传输和签到模块，不另行克隆其他项目替代实现。首次采集使用本仓库内置的 capture/windows（python -m capture.windows.collect 取状态，python -m capture.windows.get_cookie 导出学校 SESSION），签到入口为 python -m login_replay.checkin；本方案的日常运行不要依赖常驻微信。
 
 向我集中确认目标机器、首次采集用的微信环境、本人学校会话及 GCJ-02 坐标。由我完成扫码和必要授权，其余部署由你执行。采集按实际版本适配，Windows 微信 4.1.15.56、WMPF 25799 为适配组合，不将 Windows 偏移用于 Linux。
 

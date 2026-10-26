@@ -1,5 +1,6 @@
-"""MMTLS decoding adapted from fanrea/uestc-checkin-actions-public (MIT).
-See LICENSE.upstream.
+"""MMTLS decoding derived from an MIT-licensed reference implementation.
+
+See LICENSE.upstream for the retained copyright and permission notice.
 """
 import base64
 import hashlib
