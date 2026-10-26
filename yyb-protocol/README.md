@@ -2,12 +2,14 @@
 
 供部署 Agent 执行，完成环境准备、扫码授权、学校登录态配置、晚安成电签到及定时任务
 
+**部署 Prompt**：[打开并复制](PROMPT.md)
+
 ## 部署要求 ⚙️
 
 - **目标小程序**：成电智慧学工，`appId` 为 `wxaa78bf2905f01cee`
-- **学校登录**：微信授权不能替代学校 CAS 登录，学校 `SESSION` 失效后需重新认证
+- **学校登录**：本人微信已在成电智慧学工绑定学校身份时，通过 `YYB code -> check-bind -> SESSION` 获取学校会话，无需单独进行 CAS 登录，学校会话失效后可重复此流程恢复
 - **环境检查**：先确认目标系统、CPU 架构、Node.js、端口及已有任务，保留授权数据、私密配置和当天账本
-- **用户输入**：集中确认部署位置、本人学校会话及 GCJ-02 坐标，扫码和必须由本人完成的二次认证交给用户，其余安装和配置由 Agent 执行
+- **用户输入**：集中确认部署位置、微信学校身份绑定情况及 GCJ-02 坐标，扫码和必要的身份认证交给用户，其余安装和配置由 Agent 执行
 - **部署入口**：自行获取本仓库并执行本文件步骤，不要求用户提前克隆或手动逐条运行命令
 
 ## 本机运行 ⚙️
@@ -42,7 +44,17 @@
    - `settings.endpoint`：本机默认使用 `http://127.0.0.1:18766`
    - `settings.token`：填写 `.local/yyb.env` 中的 `YYB_PROTOCOL_TOKEN`
    - `settings.ref`：填写 `.local/account.json` 中的账号 `id`，使用字符串格式
-   - `session`：填写本人登录学校平台后取得的 `SESSION` 值，不包含 `SESSION=` 前缀
+   - `session`：由 Agent 按下述流程获取学校 `SESSION` 后写入，不包含 `SESSION=` 前缀，无需用户手动复制 CAS 会话
+
+   学校会话获取及恢复流程：
+
+   - 调用 `getYybCode(settings)` 获取目标小程序的新 `code`
+   - 向学校 `/platform-app/api/auth/check-bind` 发送 `POST`，设置 `platform: mp-weixin`，请求体为 `{ "code": "本次新获取的 code", "sn": "" }`，不携带旧学校 Cookie
+   - 确认响应成功、`data.bind === true` 且 `data.sessionId` 有效，将其作为 `session` 保存在私密配置中，不输出到日志
+   - 兑换 `checkin-ticket` 时重新获取一个 `code`，不能重复使用已用于 `check-bind` 的值
+   - 当前 `verify.mjs` 和 `checkin.mjs` 仍读取配置中的 `session`，部署 Agent 需接入自动获取及刷新逻辑，可参考 `../wechat-runtime/checkin.mjs` 的 `schoolClient`，将运行时的 `login` 接到 `getYybCode(settings)`
+   - 遇到明确的会话失效错误时刷新一次并重试查询，不因认证失败或请求超时自动重发签到提交
+   - 学校返回未绑定时停止流程，请用户进入成电智慧学工完成学校身份绑定后重试
 
 4. 验证学校签票，不提交签到：
 
@@ -81,7 +93,7 @@
   每天北京时间 `21:20–22:40` 随机触发，不补跑错过的任务，执行时仍检查学校返回的实际时段
 
 - 进程异常退出可能遗留私密目录内的 `checkin.lock`，先确认没有任务仍在运行，再移除锁文件，不要删除当天尝试记录后盲目重试
-- 学校 CAS 登录及自动重登可参考 [UESTC-EAMS-Helper-Python](https://github.com/MilLoong/UESTC-EAMS-Helper-Python)，由部署 Agent 参考其统一认证、二次认证和 Cookie 缓存逻辑实现，并适配学工平台的 `service`、换票流程及登录成功判断，获取本平台的 `SESSION`，不能直接复用教务系统的业务会话
+- CAS 仅作为需要独立学校认证时的可选方案，可参考 [UESTC-EAMS-Helper-Python](https://github.com/MilLoong/UESTC-EAMS-Helper-Python) 的统一认证、二次认证和 Cookie 缓存逻辑，适配学工平台的 `service`、换票流程及登录成功判断，不能直接复用教务系统的业务会话
 - Windows 本地部署由 Agent 配置任务计划程序，实现相同随机区间和单实例约束，执行期间保持电脑开机和网络可用
 - 按用户授权启用真实提交及定时任务，保留原有方案作为回滚路径，不同时运行两套签到任务
 - 部署完成后提供实际配置路径、服务名称、下一次执行时间，以及日志查看、停用、更新和回滚命令，不只输出计划
