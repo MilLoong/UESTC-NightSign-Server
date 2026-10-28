@@ -2,6 +2,8 @@
 
 本文供 AI 部署代理执行，可选择服务器、本地 Linux 或 GitHub Actions，完成 **首次采集 → HTTP 取码 → 学校授权 → 晚安成电签到 → 随机定时执行**
 
+可选启用 [Server酱签到结果通知](../NOTIFICATIONS.md)，将 `notify.json` 放在签到配置同目录
+
 ## 1. 获取代码与部署参数 📦
 
 - **仓库**：https://github.com/MilLoong/UESTC-NightSign-Server.git

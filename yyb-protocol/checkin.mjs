@@ -2,9 +2,12 @@ import { readFile, writeFile, rename, open, unlink } from 'node:fs/promises';
 import { resolve, dirname, join } from 'node:path';
 import { getYybCode } from './client.mjs';
 import { runCheckin, schoolClient, fileLedger } from '../wechat-runtime/checkin.mjs';
+import { sendNotification } from '../wechat-runtime/notify.mjs';
 
 const SCHOOL_SESSION = /^[A-Za-z0-9._~-]{10,512}$/;
 let lock, lockPath;
+let outcome, notificationPath;
+const submit = process.argv.length === 4 && process.argv[3] === '--submit';
 
 // Best effort: the refreshed session stays in memory when the config is read-only.
 async function writeConfig(path, config) {
@@ -19,6 +22,7 @@ try {
   const [configPath, mode = '--verify', ...extra] = process.argv.slice(2);
   if (!configPath || extra.length || !['--verify', '--submit'].includes(mode)) throw new Error('INVALID_ARGUMENTS');
   const path = resolve(configPath);
+  notificationPath = join(dirname(path), 'notify.json');
   const config = JSON.parse(await readFile(path, 'utf8'));
   lockPath = join(dirname(path), 'checkin.lock');
   try { lock = await open(lockPath, 'wx', 0o600); }
@@ -35,11 +39,14 @@ try {
   const result = await runCheckin({ config: config.location, request, login,
     ledger: await fileLedger(join(dirname(path), 'attempts.json')), submit: mode === '--submit' });
   console.log(JSON.stringify(result));
+  outcome = result;
   if (!result.ok) process.exitCode = 1;
 } catch (error) {
+  outcome = { ok: false };
   const code = error.code || error.message;
   console.error(JSON.stringify({ ok: false, error: /^[A-Z][A-Z0-9_]+$/.test(code) ? code : 'JOB_FAILED' }));
   process.exitCode = 1;
 } finally {
   if (lock) { await lock.close(); await unlink(lockPath); }
+  if (submit && notificationPath && outcome) console.log(JSON.stringify(await sendNotification(outcome, { path: notificationPath })));
 }

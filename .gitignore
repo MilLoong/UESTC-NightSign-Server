@@ -6,6 +6,7 @@
 **/login-state.json
 **/pure-login-state.json
 **/config.json
+**/notify.json
 **/attempts.json*
 **/.local/
 **/.env

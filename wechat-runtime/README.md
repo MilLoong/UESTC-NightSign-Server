@@ -79,6 +79,8 @@ systemctl list-timers uestc-nightsign.timer --all
 
 ## 6. 运维与交付 🔧
 
+可选启用 [Server酱签到结果通知](../NOTIFICATIONS.md)，私密配置放在运行目录的 `notify.json`
+
 ```sh
 journalctl -u uestc-nightsign.service -n 30 --no-pager
 systemctl disable --now uestc-nightsign.timer

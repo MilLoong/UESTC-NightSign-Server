@@ -1,6 +1,7 @@
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { CdpSession, APP_ID, CODE_PATTERN } from './cdp.mjs';
+import { sendNotification } from './notify.mjs';
 
 const ORIGIN = 'https://jzsz.uestc.edu.cn';
 const PREFIX = '/daily-checkin/api/';
@@ -224,6 +225,8 @@ export async function runCheckin({ config, request, login, ledger, submit = fals
 
 async function main() {
   let wechat;
+  const submit = process.argv.slice(2).length === 1 && process.argv[2] === '--submit';
+  let outcome;
   try {
     const args = process.argv.slice(2);
     requireValue(args.length <= 1 && (!args.length || ['--verify', '--submit'].includes(args[0])), 'INVALID_ARGUMENTS');
@@ -234,12 +237,17 @@ async function main() {
     const result = await runCheckin({ config, request: client, login: wechat.login,
       ledger: await fileLedger(new URL('./attempts.json', import.meta.url).pathname), submit: args[0] === '--submit' });
     console.log(JSON.stringify(result));
+    outcome = result;
     if (!result.ok) process.exitCode = 1;
   } catch (error) {
+    outcome = { ok: false, businessDate: chinaClock().date };
     console.error(JSON.stringify({ ok: false, error: error instanceof JobError ? error.code :
       error.code?.startsWith('CDP_') ? error.code : 'JOB_FAILED' }));
     process.exitCode = 1;
-  } finally { wechat?.close(); }
+  } finally {
+    wechat?.close();
+    if (submit && outcome) console.log(JSON.stringify(await sendNotification(outcome)));
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

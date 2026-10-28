@@ -2,6 +2,8 @@
 
 供部署 Agent 执行，完成环境准备、扫码授权、学校登录态配置、晚安成电签到及定时任务
 
+可选启用 [Server酱签到结果通知](../NOTIFICATIONS.md)，将 `notify.json` 放在签到配置同目录
+
 **部署 Prompt**：[打开并复制](PROMPT.md)
 
 ## 部署要求 ⚙️

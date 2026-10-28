@@ -20,6 +20,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .state import load_state
 from .transport import request_code
+from .notify import send_notification
 
 ORIGIN = 'https://jzsz.uestc.edu.cn'
 API = '/daily-checkin/api/'
@@ -265,7 +266,7 @@ def acquire_lock(path):
         raise FlowError('JOB_ALREADY_RUNNING_OR_STALE_LOCK') from None
 
 
-def run_cli(argv):
+def run_cli(argv, outcome=None):
     parser = argparse.ArgumentParser(description="One-shot check-in using a replayed code and the user's own school session.")
     parser.add_argument('--config', type=Path, required=True, help='private JSON config')
     parser.add_argument('--verify', action='store_true', help='only verify authorization (default)')
@@ -288,6 +289,8 @@ def run_cli(argv):
     lock = acquire_lock(lock_path)
     try:
         result = run_checkin(config, code_provider, submit=args.submit)
+        if outcome is not None:
+            outcome.update(result)
     finally:
         os.close(lock)
         try:
@@ -298,9 +301,9 @@ def run_cli(argv):
     return 0 if result['ok'] else 1
 
 
-def main(argv=None):
+def _main(argv=None, outcome=None):
     try:
-        return run_cli(sys.argv[1:] if argv is None else argv)
+        return run_cli(sys.argv[1:] if argv is None else argv, outcome)
     except FlowError as error:
         print(json.dumps({'ok': False, 'error': error.code}), file=sys.stderr)
         return 1
@@ -312,6 +315,19 @@ def main(argv=None):
     except Exception:
         print(json.dumps({'ok': False, 'error': 'JOB_FAILED'}), file=sys.stderr)
         return 1
+
+
+def main(argv=None):
+    values = sys.argv[1:] if argv is None else list(argv)
+    result = {'ok': False}
+    try:
+        return _main(values, result)
+    finally:
+        if '--submit' in values and '--verify' not in values and '--config' in values:
+            index = values.index('--config') + 1
+            if index < len(values):
+                path = Path(values[index]).resolve().parent / 'notify.json'
+                print(json.dumps(send_notification(result, path)))
 
 
 if __name__ == '__main__':
